@@ -1,0 +1,522 @@
+---
+title: "FINAL PROJECT"
+output: pdf_document
+date: "2024-04-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+install.packages("corrplot")
+
+install.packages("MASS")
+
+install.packages("glmnet")
+
+install.packages("vcd")
+
+install.packages("rms")
+library(rms)
+library(tidyverse)
+library(nnet)
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+library(MASS)
+library(glmnet)
+library(vcd)
+library(pROC)
+#Reading the data into df
+df <- read.csv("cancer patient data sets.csv")
+
+
+```
+
+```{r}
+#Checking for missing values
+sapply(df, function(x)sum(is.na(x)))
+
+#Checking for Multicollinearity between the variables of interest
+ndata <- df[, !names(df) %in% c("chronic.Lung.Disease", "index", "Patient.Id", "Level", "Alcohol.use", "Balanced.Diet", "Obesity", "Chest.Pain", 
+                                      "Coughing.of.Blood", "Fatigue", 
+                                      "Weight.Loss", "Swallowing.Difficulty", 
+                                      "Clubbing.of.Finger.Nails",
+                                      "Frequent.Cold", "Dry.Cough", "Snoring", 
+                                      "Shortness.of.Breath", "Wheezing")]
+
+cor_matrix <- cor(ndata)
+corrplot(cor_matrix, method = "circle")
+
+
+#Factoring the categorical values
+df$Gender <- factor(df$Gender)
+df$Air.Pollution <- factor(df$Air.Pollution)
+df$Alcohol.use <- factor(df$Alcohol.use)
+df$Dust.Allergy <- factor(df$Dust.Allergy)
+df$OccuPational.Hazards <- factor(df$OccuPational.Hazards)
+df$Genetic.Risk <- factor(df$Genetic.Risk)
+df$chronic.Lung.Disease <- factor(df$chronic.Lung.Disease)
+df$Balanced.Diet <- factor(df$Balanced.Diet)
+df$Obesity <- factor(df$Balanced.Diet)
+df$Smoking <- factor(df$Smoking)
+df$Passive.Smoker <- factor(df$Passive.Smoker)
+df$Chest.Pain <- factor(df$Chest.Pain)
+df$Coughing.of.Blood <- factor(df$Coughing.of.Blood)
+df$Fatigue <- factor(df$Fatigue)
+df$Weight.Loss <- factor(df$Weight.Loss)
+df$Swallowing.Difficulty <- factor(df$Swallowing.Difficulty)
+df$Clubbing.of.Finger.Nails <- factor(df$Clubbing.of.Finger.Nails)
+df$Frequent.Cold <- factor(df$Frequent.Cold)
+df$Dry.Cough <- factor(df$Dry.Cough)
+df$Snoring <- factor(df$Snoring)
+df$Level <- factor(df$Level)
+library(gridExtra)
+###Description of the data 
+# Set up the graphics layout for a 3x2 plot arrangement
+par(mfrow = c(3, 2))
+
+# Plot 1: Air Pollution Level Distribution
+barplot(pollutiontable, 
+        main = "Bar Plot of Air Pollution Level Distribution", 
+        xlab = "Level of Air Pollution", 
+        ylab = "Frequency", 
+        col = "blue")
+
+# Plot 2: Lung Disease Level Distribution
+barplot(outcometable, 
+        main = "Bar Plot of Lung Disease Level Distribution", 
+        xlab = "Level of Disease", 
+        ylab = "Frequency", 
+        col = "blue")
+
+# Plot 3: Histogram of Age Variable
+hist(df$Age, main = "Histogram of Age Variable", xlab = "Age", col = "blue")
+
+# Plot 4: Level of Smoking
+barplot(smoketable, 
+        main = "Bar Plot of Level of Smoking of the Subject", 
+        xlab = "Level of Smoking", 
+        ylab = "Frequency", 
+        col = "blue")
+
+# Plot 5: Level of Genetic Risk
+barplot(genetable, 
+        main = "Bar Plot of Level of Genetic Risk", 
+        xlab = "Level of Genetic Risk", 
+        ylab = "Frequency", 
+        col = "blue")
+
+# Plot 6: Empty (since you have only 5 plots)
+plot(1, type = "n", axes = FALSE, ann = FALSE) # Creates an empty plot
+
+# Reset to default single plotting
+par(mfrow = c(1, 1))
+
+```
+
+
+```{r}
+#Initial full model with all the variables of interest
+full_model <- multinom(formula = Level ~ Air.Pollution + Age + Gender +
+                         OccuPational.Hazards + Genetic.Risk + Smoking + Passive.Smoker + 
+                         Dust.Allergy, data = df)
+
+
+
+#AIC stepwise model selection
+
+sel.var.aic <- stepAIC(full_model, trace = FALSE,direction = "both") 
+select_var_aic<-attr(terms(sel.var.aic), "term.labels")   
+select_var_aic
+
+#BIC stepwise model selection
+sel.var.bic <- stepAIC(full_model, trace = FALSE, direction = "both", k = log(nrow(df)))
+select_var_bic<-attr(terms(sel.var.bic), "term.labels")   
+select_var_bic
+
+#LASSO model selection
+vars <- as.matrix(df[, !names(df) %in% c("chronic.Lung.Disease", "index", "Patient.Id", "Level", "Alcohol.use", "Balanced.Diet", "Obesity", "Chest.Pain", 
+                                      "Coughing.of.Blood", "Fatigue", 
+                                      "Weight.Loss", "Swallowing.Difficulty", 
+                                      "Clubbing.of.Finger.Nails",
+                                      "Frequent.Cold", "Dry.Cough", "Snoring", 
+                                      "Shortness.of.Breath", "Wheezing")])
+y <- df$Level
+
+###
+fit <- glmnet(vars, y, family = "multinomial")
+plot(fit, xvar = "dev", label = TRUE)
+
+# Cross-validation to determine the optimal lambda
+cvfit <- cv.glmnet(vars, y, family = "multinomial", type.measure = "deviance")
+plot(cvfit)
+
+# Extracting optimal lambda values
+optimal_lambda <- cvfit$lambda.min
+lambda_1se <- cvfit$lambda.1se
+
+# Using the optimal lambda for prediction
+predicted_probabilities <- predict(fit, newx = vars[1:5,], type = "response", s = optimal_lambda)
+predicted_classes <- apply(predicted_probabilities, 1, which.max)  # Indices of the max probability
+
+# Extract coefficients at the optimal lambda
+coef(cvfit, s = "lambda.min")
+
+lasso_model <- multinom(formula = Level ~ Air.Pollution + Age +
+                          Gender + OccuPational.Hazards + Genetic.Risk + 
+                          Smoking + Passive.Smoker + Dust.Allergy, data = df)
+AIC(lasso_model)
+AIC_model <- multinom(formula = Level ~ Air.Pollution + Age +
+                        Genetic.Risk + Smoking + Passive.Smoker, data = df)
+BIC_model <- multinom(formula = Level ~ Air.Pollution + Age + 
+                        Gender + Genetic.Risk + Passive.Smoker, data = df)
+select_var_aic
+df$Level <- relevel(df$Level, ref = "Medium")
+final_model <- multinom(formula = Level ~ Air.Pollution + Age + 
+                          Smoking + Genetic.Risk, data = df)
+AIC(AIC_model)
+AIC(BIC_model)
+AIC(lasso_model)
+AIC(final_model)
+
+summary(lasso_model)
+summary(final_model)
+sel.var.aic
+coefs <- coef(final_model)
+std_errors <- sqrt(diag(vcov(final_model)))
+
+# Calculate z-values
+z_values <- coefs / std_errors
+
+# Get p-values
+p_values <- 2 * (1 - pnorm(abs(z_values)))
+
+# To view the p-values
+p_values
+```
+
+
+```{r}
+library(pROC)
+
+
+
+p <- predict(BIC_model, type = "prob")
+classes <- levels(df$Level)
+roc_curves <- list()
+auc_values <- c()
+
+
+for(class in classes) {
+  binary_response <- ifelse(df$Level == class, 1, 0)
+  prob <- p[, class]
+  roc_curves[[class]] <- roc(response = binary_response, predictor = prob)
+  TPR <- roc_curves[[class]]$sensitivities
+  FPR <- 1 - roc_curves[[class]]$specificities
+  
+  # Calculate the AUC and store it
+  auc_values[class] <- auc(roc_curves[[class]])
+  
+  # Plot the ROC curve
+  plot(FPR, TPR, xlim = c(0, 1), ylim = c(0, 1), type = 'l', lty = 1, lwd = 2,
+       col = 'red')
+  # Add AUC to the plot
+  text(0.7, 0.4, label = paste("AUC for", class, "=", round(auc_values[class], 2)))
+  abline(a = 0, b = 1, lty = 2, col = 'blue')
+
+}
+
+# If you want to see the AUC values
+print(auc_values)
+
+p2 <- predict(AIC_model, type = "prob")
+classes <- levels(df$Level)
+roc_curves <- list()
+auc_values <- c()
+
+for(class in classes) {
+  binary_response <- ifelse(df$Level == class, 1, 0)
+  prob <- p2[, class]
+  roc_curves[[class]] <- roc(response = binary_response, predictor = prob)
+  TPR <- roc_curves[[class]]$sensitivities
+  FPR <- 1 - roc_curves[[class]]$specificities
+  
+  # Calculate the AUC and store it
+  auc_values[class] <- auc(roc_curves[[class]])
+  
+  # Plot the ROC curve
+  plot(FPR, TPR, xlim = c(0, 1), ylim = c(0, 1), type = 'l', lty = 1, lwd = 2,
+       col = 'red')
+  # Add AUC to the plot
+  text(0.7, 0.4, label = paste("AUC for", class, "=", round(auc_values[class], 2)))
+  abline(a = 0, b = 1, lty = 2, col = 'blue')
+}
+
+# If you want to see the AUC values
+print(auc_values)
+### lasso_model
+p3 <- predict(lasso_model, type = "prob")
+classes <- levels(df$Level)
+roc_curves <- list()
+auc_values <- c()
+
+for(class in classes) {
+  binary_response <- ifelse(df$Level == class, 1, 0)
+  prob <- p3[, class]
+  roc_curves[[class]] <- roc(response = binary_response, predictor = prob)
+  TPR <- roc_curves[[class]]$sensitivities
+  FPR <- 1 - roc_curves[[class]]$specificities
+  
+  # Calculate the AUC and store it
+  auc_values[class] <- auc(roc_curves[[class]])
+  
+  # Plot the ROC curve
+  plot(FPR, TPR, xlim = c(0, 1), ylim = c(0, 1), type = 'l', lty = 1, lwd = 2,
+       col = 'red')
+  # Add AUC to the plot
+  text(0.7, 0.4, label = paste("AUC for", class, "=", round(auc_values[class], 2)))
+  abline(a = 0, b = 1, lty = 2, col = 'blue')
+}
+
+# If you want to see the AUC values
+print(auc_values)
+
+###final model
+p4 <- predict(final_model, type = "prob")
+classes <- levels(df$Level)
+roc_curves <- list()
+auc_values <- c()
+
+for(class in classes) {
+  binary_response <- ifelse(df$Level == class, 1, 0)
+  prob <- p4[, class]
+  roc_curves[[class]] <- roc(response = binary_response, predictor = prob)
+  TPR <- roc_curves[[class]]$sensitivities
+  FPR <- 1 - roc_curves[[class]]$specificities
+  # Calculate the AUC and store it
+  auc_values[class] <- auc(roc_curves[[class]])
+  
+  # Plot the ROC curve
+  plot(FPR, TPR, xlim = c(0, 1), ylim = c(0, 1), type = 'l', lty = 1, lwd = 2,
+       col = 'red')
+  # Add AUC to the plot
+  text(0.7, 0.4, label = paste("AUC for", class, "=", round(auc_values[class], 2)))
+  abline(a = 0, b = 1, lty = 2, col = 'blue')
+}
+
+# If you want to see the AUC values
+print(auc_values)
+```
+
+
+```{r}
+
+
+df$BinaryOutcome1 <- ifelse(df$Level == "Low", 1, 0)
+fit1 <- lrm(BinaryOutcome1 ~ Air.Pollution + Age + Dust.Allergy + 
+              Smoking + Genetic.Risk,
+            data = df,  x =TRUE, y = TRUE, model= TRUE)
+cal1 <- calibrate(fit1, method = 'crossvalidation', B = 10)
+plot(cal1, main = "Calibration Plot for Low")
+
+df$BinaryOutcome2 <- ifelse(df$Level == "Medium", 1, 0)
+fit2 <- lrm(BinaryOutcome2 ~ Air.Pollution + Age + Genetic.Risk + Smoking + Passive.Smoker, data = df, x =TRUE, y = TRUE, model= TRUE)
+cal2 <- calibrate(fit2, method = 'crossvalidation', B = 10)
+plot(cal2, main = "Calibration Plot for Category 2")
+
+df$BinaryOutcome3 <- ifelse(df$Level == "High", 1, 0)
+fit3 <- lrm(BinaryOutcome3 ~ Air.Pollution + Age + Genetic.Risk + Smoking + Passive.Smoker, data = df, x =TRUE, y = TRUE, model= T)
+cal3 <- calibrate(fit3, method = 'crossvalidation', B = 10)
+plot(cal3, main = "Calibration Plot for Category 3")
+
+
+##BIC model
+predicted_probs <- predict(BIC_model, type = "probs")
+
+# Extract the levels of the outcome variable
+outcome_levels <- levels(df$Level)
+
+# Initialize a list to store calibration results
+calibrations <- list()
+
+# Loop over each level and perform binary calibration
+for (level in outcome_levels) {
+  # Create a binary response variable for the current level vs all others
+  binary_response <- ifelse(df$Level == level, 1, 0)
+  
+  # Fit a binary logistic regression model using lrm from rms package
+  lrm_model <- lrm(binary_response ~ predicted_probs[, level], x = TRUE, y = TRUE)
+  
+  # Perform the calibration using bootstrapping
+  calibrations[[level]] <- calibrate(lrm_model, method = "crossvalidation", B = 10)
+  
+  # Plot the calibration result
+  plot(calibrations[[level]], main = paste("Calibration for", level, "Level"))
+}
+
+
+##AIC model
+predicted_probs <- predict(AIC_model, type = "probs")
+
+# Extract the levels of the outcome variable
+outcome_levels <- levels(df$Level)
+
+# Initialize a list to store calibration results
+calibrations <- list()
+
+# Loop over each level and perform binary calibration
+for (level in outcome_levels) {
+  # Create a binary response variable for the current level vs all others
+  binary_response <- ifelse(df$Level == level, 1, 0)
+  
+  # Fit a binary logistic regression model using lrm from rms package
+  lrm_model <- lrm(binary_response ~ predicted_probs[, level], x = TRUE, y = TRUE)
+  
+  # Perform the calibration using bootstrapping
+  calibrations[[level]] <- calibrate(lrm_model, method = "crossvalidation", B = 10)
+  
+  # Plot the calibration result
+  plot(calibrations[[level]], main = paste("Calibration for", level, "Level"))
+}
+
+##Lasso_model
+predicted_probs <- predict(lasso_model, type = "probs")
+
+# Extract the levels of the outcome variable
+outcome_levels <- levels(df$Level)
+
+# Initialize a list to store calibration results
+calibrations <- list()
+
+# Loop over each level and perform binary calibration
+for (level in outcome_levels) {
+  # Create a binary response variable for the current level vs all others
+  binary_response <- ifelse(df$Level == level, 1, 0)
+  
+  # Fit a binary logistic regression model using lrm from rms package
+  lrm_model <- lrm(binary_response ~ predicted_probs[, level], x = TRUE, y = TRUE)
+  
+  # Perform the calibration using bootstrapping
+  calibrations[[level]] <- calibrate(lrm_model, method = "crossvalidation", B = 10)
+  
+  # Plot the calibration result
+  plot(calibrations[[level]], main = paste("Calibration for", level, "Level"))
+}
+
+
+#####final_model
+predicted_probs <- predict(final_model, type = "probs")
+
+# Extract the levels of the outcome variable
+outcome_levels <- levels(df$Level)
+
+# Initialize a list to store calibration results
+calibrations <- list()
+
+# Loop over each level and perform binary calibration
+for (level in outcome_levels) {
+  # Create a binary response variable for the current level vs all others
+  binary_response <- ifelse(df$Level == level, 1, 0)
+  
+  # Fit a binary logistic regression model using lrm from rms package
+  lrm_model <- lrm(binary_response ~ predicted_probs[, level], x = TRUE, y = TRUE)
+  
+  # Perform the calibration using bootstrapping
+  calibrations[[level]] <- calibrate(lrm_model, method = "boot", B = 100)
+  
+  # Plot the calibration result
+  plot(calibrations[[level]], main = paste("Calibration for", level, "Level"))
+}
+```
+
+
+
+```{r}
+
+
+# Diagnostics
+##fullmodel
+probs <- predict(final_model, type = "probs")
+df$Level <- factor(df$Level, levels = c("Low", "Medium", "High"))
+
+# Create the binary matrix for the actual outcomes
+actual <- model.matrix(~ Level - 1, data = df)
+
+# Calculate deviance residuals manually
+dev_resid <- -2 * (actual * log(probs) + (1 - actual) * log(1 - probs))
+
+# Assuming 'actual' is a binary matrix with the same structure as 'probs'
+# where actual[i,j] is 1 if the i-th observation is in the j-th category of the outcome
+
+# Plot the deviance residuals for each level
+par(mfrow = c(3, 1)) # Assuming 3 levels: Low, Medium, High
+for (i in 1:3) {
+  plot(dev_resid[, i], main = paste("Deviance Residuals for", colnames(dev_resid)[i]),
+       xlab = "Index", ylab = "Deviance Residuals")
+  abline(h = 0, col = "red", lty = 2)
+}
+
+##bic model
+probs <- predict(BIC_model, type = "probs")
+df$Level <- factor(df$Level, levels = c("Low", "Medium", "High"))
+
+# Create the binary matrix for the actual outcomes
+actual <- model.matrix(~ Level - 1, data = df)
+
+# Calculate deviance residuals manually
+dev_resid <- -2 * (actual * log(probs) + (1 - actual) * log(1 - probs))
+
+# Assuming 'actual' is a binary matrix with the same structure as 'probs'
+# where actual[i,j] is 1 if the i-th observation is in the j-th category of the outcome
+
+# Plot the deviance residuals for each level
+par(mfrow = c(3, 1)) # Assuming 3 levels: Low, Medium, High
+for (i in 1:3) {
+  plot(dev_resid[, i], main = paste("Deviance Residuals for", colnames(dev_resid)[i]),
+       xlab = "Index", ylab = "Deviance Residuals")
+  abline(h = 0, col = "red", lty = 2)
+}
+
+#AIC model
+probs <- predict(AIC_model, type = "probs")
+df$Level <- factor(df$Level, levels = c("Low", "Medium", "High"))
+
+# Create the binary matrix for the actual outcomes
+actual <- model.matrix(~ Level - 1, data = df)
+
+# Calculate deviance residuals manually
+dev_resid <- -2 * (actual * log(probs) + (1 - actual) * log(1 - probs))
+
+# Assuming 'actual' is a binary matrix with the same structure as 'probs'
+# where actual[i,j] is 1 if the i-th observation is in the j-th category of the outcome
+
+# Plot the deviance residuals for each level
+par(mfrow = c(3, 1)) # Assuming 3 levels: Low, Medium, High
+for (i in 1:3) {
+  plot(dev_resid[, i], main = paste("Deviance Residuals for", colnames(dev_resid)[i]),
+       xlab = "Index", ylab = "Deviance Residuals")
+  abline(h = 0, col = "red", lty = 2)
+}
+
+
+##LassoModel
+probs <- predict(lasso_model, type = "probs")
+df$Level <- factor(df$Level, levels = c("Low", "Medium", "High"))
+
+# Create the binary matrix for the actual outcomes
+actual <- model.matrix(~ Level - 1, data = df)
+
+# Calculate deviance residuals manually
+dev_resid <- -2 * (actual * log(probs) + (1 - actual) * log(1 - probs))
+
+# Assuming 'actual' is a binary matrix with the same structure as 'probs'
+# where actual[i,j] is 1 if the i-th observation is in the j-th category of the outcome
+
+# Plot the deviance residuals for each level
+par(mfrow = c(3, 1)) # Assuming 3 levels: Low, Medium, High
+for (i in 1:3) {
+  plot(dev_resid[, i], main = paste("Deviance Residuals for", colnames(dev_resid)[i]),
+       xlab = "Index", ylab = "Deviance Residuals")
+  abline(h = 0, col = "red", lty = 2)
+}
+```
+
