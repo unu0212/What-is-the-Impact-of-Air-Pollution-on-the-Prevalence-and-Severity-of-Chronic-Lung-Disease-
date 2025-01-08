@@ -33,7 +33,3 @@ The repository is organized as follows:
 ## Future Work
 The study highlights the need for longitudinal research to better understand the dynamic relationship between air pollution and lung health. Further exploration of genetic-environment interactions is also recommended.
 
-## How to Use
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/yourusername/air-pollution-lung-disease.git
